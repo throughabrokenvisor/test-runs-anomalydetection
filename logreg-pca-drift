@@ -1,0 +1,252 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, log_loss, confusion_matrix, classification_report, roc_auc_score, roc_curve
+from sklearn.utils import resample
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+import streamlit as st
+import pickle
+import scipy.stats as stats
+from scipy.spatial.distance import jensenshannon
+
+# Load the CSV files
+st.title("Spam vs Ham Email Classification")
+print("Loading CSV files...")
+file_paths = {
+    "combined_data": "data/combined_data.csv",
+    "lingSpam": "data/lingSpam.csv",
+    "completeSpamAssassin": "data/completeSpamAssassin.csv",
+    "spam_ham_dataset": "data/spam_ham_dataset.csv",
+    "spam_Emails_data": "data/spam_Emails_data.csv"
+}
+
+# Read each CSV file
+dataframes = {}
+for name, path in file_paths.items():
+    print(f"Reading {name} from {path}...")
+    dataframes[name] = pd.read_csv(path)
+    print(f"Loaded {name}, shape: {dataframes[name].shape}")
+    st.write(f"Reading {name} from {path}...")
+    st.write(f"Loaded {name}, shape: {dataframes[name].shape}")
+
+# Standardize column names and add source labels
+for name, df in dataframes.items():
+    print(f"Processing {name} dataframe...")
+    if 'Body' in df.columns:
+        df.rename(columns={'Body': 'text', 'Label': 'label'}, inplace=True)
+    elif 'CONTENT' in df.columns and 'CLASS' in df.columns:
+        df.rename(columns={'CONTENT': 'text', 'CLASS': 'label'}, inplace=True)
+    df = df[['text', 'label']]
+    df.loc[:, 'source'] = name  # Use .loc to avoid SettingWithCopyWarning
+    dataframes[name] = df
+    print(f"Processed {name}, columns: {df.columns.tolist()}")
+    st.write(f"Processed {name}, columns: {df.columns.tolist()}")
+
+# Concatenate all dataframes
+print("Concatenating all dataframes...")
+st.write("Concatenating all dataframes...")
+data = pd.concat(dataframes.values(), ignore_index=True)
+print(f"Concatenated data shape: {data.shape}")
+st.write(f"Concatenated data shape: {data.shape}")
+
+# Encode labels as 0 (ham) and 1 (spam)
+print("Encoding labels...")
+st.write("Encoding labels...")
+data['label'] = data['label'].apply(lambda x: 1 if x in [1, 'spam', 'spam '] else 0)
+print("Label encoding completed. Label distribution:")
+st.write("Label encoding completed. Label distribution:")
+print(data['label'].value_counts())
+st.write(data['label'].value_counts())
+
+# Drop rows with missing text data
+print("Dropping rows with missing text data...")
+st.write("Dropping rows with missing text data...")
+data.dropna(subset=['text'], inplace=True)
+print(f"Data shape after dropping missing text: {data.shape}")
+st.write(f"Data shape after dropping missing text: {data.shape}")
+
+# Balance the dataset to have equal ham and spam samples
+print("Balancing the dataset...")
+st.write("Balancing the dataset...")
+spam_data = data[data['label'] == 1]
+ham_data = data[data['label'] == 0]
+print(f"Spam data shape: {spam_data.shape}, Ham data shape: {ham_data.shape}")
+st.write(f"Spam data shape: {spam_data.shape}, Ham data shape: {ham_data.shape}")
+
+# Resample the minority class to match the majority class size
+if len(spam_data) > len(ham_data):
+    print("Resampling spam data...")
+    st.write("Resampling spam data...")
+    spam_data = resample(spam_data, replace=False, n_samples=len(ham_data), random_state=42)
+else:
+    print("Resampling ham data...")
+    st.write("Resampling ham data...")
+    ham_data = resample(ham_data, replace=False, n_samples=len(spam_data), random_state=42)
+
+balanced_data = pd.concat([spam_data, ham_data])
+print(f"Balanced data shape: {balanced_data.shape}")
+st.write(f"Balanced data shape: {balanced_data.shape}")
+
+# Split data into training and testing sets
+print("Splitting data into training and testing sets...")
+st.write("Splitting data into training and testing sets...")
+X_train, X_test, y_train, y_test = train_test_split(balanced_data['text'], balanced_data['label'], test_size=0.2, random_state=42)
+print(f"Training data shape: {X_train.shape}, Testing data shape: {X_test.shape}")
+st.write(f"Training data shape: {X_train.shape}, Testing data shape: {X_test.shape}")
+
+# Convert text data to TF-IDF features
+print("Converting text data to TF-IDF features...")
+st.write("Converting text data to TF-IDF features...")
+vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
+print("TF-IDF transformation completed.")
+st.write("TF-IDF transformation completed.")
+
+# Define logistic regression model and hyperparameter grid
+print("Defining logistic regression model and hyperparameter grid...")
+st.write("Defining logistic regression model and hyperparameter grid...")
+model = LogisticRegression(solver='liblinear', random_state=42)
+param_grid = {
+    'C': [0.01, 0.1, 1, 10, 100],
+    'penalty': ['l1', 'l2']
+}
+print(f"Hyperparameter grid: {param_grid}")
+st.write(f"Hyperparameter grid: {param_grid}")
+
+# Perform hyperparameter optimization with GridSearchCV
+print("Performing hyperparameter optimization with GridSearchCV...")
+st.write("Performing hyperparameter optimization with GridSearchCV...")
+grid_search = GridSearchCV(model, param_grid, cv=5, scoring='accuracy')
+grid_search.fit(X_train_tfidf, y_train)
+print("Grid search completed.")
+st.write("Grid search completed.")
+
+# Best model from grid search
+print("Best parameters found:", grid_search.best_params_)
+st.write("Best parameters found:", grid_search.best_params_)
+best_model = grid_search.best_estimator_
+
+# Cross-validation with the best model
+print("Performing cross-validation with the best model...")
+st.write("Performing cross-validation with the best model...")
+cross_val_scores = cross_val_score(best_model, X_train_tfidf, y_train, cv=5, scoring='accuracy')
+print(f'Cross-validation scores: {cross_val_scores}')
+st.write(f'Cross-validation scores: {cross_val_scores}')
+mean_cross_val_accuracy = cross_val_scores.mean()
+print(f'Mean cross-validation accuracy: {mean_cross_val_accuracy:.2f}')
+st.write(f'Mean cross-validation accuracy: {mean_cross_val_accuracy:.2f}')
+
+# Check if accuracy drops below 80%
+if mean_cross_val_accuracy < 0.80:
+    print("WARNING: Cross-validation accuracy has dropped below 80%!")
+    st.write("WARNING: Cross-validation accuracy has dropped below 80%!")
+
+# Predict on the test set
+print("Predicting on the test set...")
+st.write("Predicting on the test set...")
+y_pred = best_model.predict(X_test_tfidf)
+y_pred_proba = best_model.predict_proba(X_test_tfidf)[:, 1]
+print("Prediction completed.")
+st.write("Prediction completed.")
+
+# Calculate accuracy and log loss
+print("Calculating accuracy and log loss...")
+st.write("Calculating accuracy and log loss...")
+accuracy = accuracy_score(y_test, y_pred)
+loss = log_loss(y_test, y_pred_proba)
+print(f'Accuracy: {accuracy:.2f}')
+st.write(f'Accuracy: {accuracy:.2f}')
+if accuracy < 0.80:
+    print("WARNING: Test set accuracy has dropped below 80%!")
+    st.write("WARNING: Test set accuracy has dropped below 80%!")
+print(f'Log Loss: {loss:.2f}')
+st.write(f'Log Loss: {loss:.2f}')
+
+# Confusion Matrix
+print("Generating confusion matrix...")
+st.write("Generating confusion matrix...")
+conf_matrix = confusion_matrix(y_test, y_pred)
+print("Confusion Matrix:")
+print(conf_matrix)
+st.write("Confusion Matrix:")
+st.write(conf_matrix)
+
+# Classification Report
+print("Generating classification report...")
+st.write("Generating classification report...")
+class_report = classification_report(y_test, y_pred)
+print("Classification Report:")
+print(class_report)
+st.write("Classification Report:")
+st.write(class_report)
+
+# ROC AUC Score
+print("Calculating ROC AUC Score...")
+st.write("Calculating ROC AUC Score...")
+roc_auc = roc_auc_score(y_test, y_pred_proba)
+print(f'ROC AUC Score: {roc_auc:.2f}')
+st.write(f'ROC AUC Score: {roc_auc:.2f}')
+
+# Plotting ROC Curve
+print("Plotting ROC Curve...")
+st.write("Plotting ROC Curve...")
+fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+plt.figure(figsize=(10, 6))
+plt.plot(fpr, tpr, color='b', label=f'ROC Curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='r', linestyle='--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend()
+print("Displaying ROC Curve plot...")
+st.pyplot(plt)
+
+# Data Drift Monitoring using Jensen-Shannon Divergence
+print("Monitoring data drift using Jensen-Shannon Divergence...")
+st.write("Monitoring data drift using Jensen-Shannon Divergence...")
+train_features_mean = np.mean(X_train_tfidf.toarray(), axis=0)
+test_features_mean = np.mean(X_test_tfidf.toarray(), axis=0)
+
+# Calculate the Jensen-Shannon Divergence between training and test distributions
+js_divergence = jensenshannon(train_features_mean, test_features_mean)
+print(f'Jensen-Shannon Divergence between training and test feature distributions: {js_divergence:.4f}')
+st.write(f'Jensen-Shannon Divergence between training and test feature distributions: {js_divergence:.4f}')
+
+# Alert if JS divergence is above a reasonable threshold indicating potential data drift
+js_threshold = 0.2
+if js_divergence > js_threshold:
+    print("WARNING: Significant data drift detected! Jensen-Shannon Divergence is above the threshold.")
+    st.write("WARNING: Significant data drift detected! Jensen-Shannon Divergence is above the threshold.")
+
+# Save the model for later use
+print("Saving the trained model...")
+st.write("Saving the trained model...")
+with open('logistic_regression_model.pkl', 'wb') as f:
+    pickle.dump(best_model, f)
+print("Model saved successfully.")
+st.write("Model saved successfully.")
+
+# Streamlit input for user prediction
+st.write("## Predict if your email is spam or ham")
+user_input = st.text_area("Enter the email content:")
+if st.button("Predict"):
+    if user_input:
+        print("Transforming user input using TF-IDF...")
+        user_input_tfidf = vectorizer.transform([user_input])
+        print("Making prediction for user input...")
+        prediction = best_model.predict(user_input_tfidf)[0]
+        prediction_proba = best_model.predict_proba(user_input_tfidf)[0, 1]
+        if prediction == 1:
+            print(f"The email is predicted to be SPAM with a probability of {prediction_proba:.2f}.")
+            st.write(f"The email is predicted to be **SPAM** with a probability of {prediction_proba:.2f}.")
+        else:
+            print(f"The email is predicted to be HAM with a probability of {1 - prediction_proba:.2f}.")
+            st.write(f"The email is predicted to be **HAM** with a probability of {1 - prediction_proba:.2f}.")
+    else:
+        print("No input provided for prediction.")
+        st.write("Please enter email content to predict.")
