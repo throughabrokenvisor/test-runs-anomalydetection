@@ -9,6 +9,12 @@ import numpy as np
 import pickle
 from scipy.spatial.distance import jensenshannon
 
+import kagglehub
+
+# Download latest version of spam_Emails_data
+path = kagglehub.dataset_download("meruvulikith/190k-spam-ham-email-dataset-for-classification")
+print("Path to dataset files:", path)
+
 # Load the CSV files
 print("Loading CSV files...")
 file_paths = {
@@ -16,7 +22,7 @@ file_paths = {
     "lingSpam": "data/lingSpam.csv",
     "completeSpamAssassin": "data/completeSpamAssassin.csv",
     "spam_ham_dataset": "data/spam_ham_dataset.csv",
-    "spam_Emails_data": "data/spam_Emails_data.csv"
+    "spam_Emails_data": kagglehub.dataset_download("meruvulikith/190k-spam-ham-email-dataset-for-classification")
 }
 
 # Read each CSV file
