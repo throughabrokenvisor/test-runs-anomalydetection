@@ -1,8 +1,8 @@
+
+# requirements.txt
 pandas
 scikit-learn
 numpy
-streamlit
-kagglehub
 matplotlib
-mpl_toolkits
-pickle
+scipy
+pickle5
